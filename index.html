@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="description" content="대륙 · 국가 · 계통 · 고도로 찾아보는 커피 품종 도감">
 <title>커피 품종 도감</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -1804,6 +1804,44 @@ p.pks-act{display:block}
   .sheet-back svg{width:22px;height:22px}
   #sheetClose{display:none}
   .sheet-nav .icon-btn{width:44px;height:44px}
+}
+
+/* ── 휴대폰 — 필터 잘 보이게 · 화이트/블랙 버튼 고정 · 확대 막기 (2026-10-03) ── */
+html{touch-action:manipulation}
+.side-sel{display:none}
+@media (max-width:760px){
+  /* 오른쪽 위 = 화이트 / 블랙 */
+  #themeBtn{display:grid !important;order:9}
+  .mast-tools{display:flex;align-items:center}
+
+  /* 「필터 색인」 버튼 — 조건이 걸리면 진하게 */
+  .side-toggle.on{border:1.5px solid var(--ink);color:var(--ink);font-weight:600}
+  .side-toggle.on .mono{color:var(--ink);font-weight:700}
+
+  /* 결과 위 칩 — 옆으로 넘기지 않고 줄을 바꿔 전부 보이게 */
+  .active-bar{flex-wrap:wrap !important;overflow:visible !important;row-gap:8px}
+  .active-bar .af-all{font-weight:600;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+
+  /* 필터 창 맨 위 — 고른 조건 */
+  .sidebar.open .side-clear{display:none}
+  .sidebar.open .side-sel{display:block;position:sticky;top:-22px;z-index:3;margin:-22px -20px 6px;padding:18px 20px 14px;
+    background:var(--paper);border-bottom:1px solid var(--line)}
+  .ss-h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+  .ss-h b{font-size:16px;font-weight:600}
+  .ss-h span{font-size:13px;color:var(--ink-3)}
+  .ss-chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .ss-chips .af-all{font-size:13px;font-weight:600;color:var(--ink);text-decoration:underline;text-underline-offset:3px;padding:6px 4px}
+
+  /* 필터 항목 — 앞에 체크 칸 */
+  .sidebar .fbtn{display:flex;align-items:center;gap:12px;min-height:48px;text-decoration:none !important}
+  .sidebar .fbtn::before{content:"";flex:none;width:20px;height:20px;box-sizing:border-box;border:1.5px solid var(--ink-3);border-radius:3px}
+  .sidebar .fbtn[aria-pressed="true"]::before{border-color:var(--ink);
+    background:var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5 10.5l3.2 3.2L15 7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat}
+  :root[data-theme="dark"] .sidebar .fbtn[aria-pressed="true"]::before{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5 10.5l3.2 3.2L15 7' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+  .sidebar .fbtn > span:not(.cnt):not(.sw){flex:1;text-decoration:none !important;border:0 !important}
+  .sidebar .fbtn[aria-pressed="true"] > span:not(.cnt){font-weight:600}
+  .sidebar .fbtn .cnt{text-decoration:none !important;border:0 !important}
 }
 </style>
 
@@ -8801,20 +8839,28 @@ function renderActiveBar() {
   if (!FILTER_VIEWS[state.view] || !(fs.length || state.q || state.favOnly)) {
     bar.hidden = true; bar.innerHTML = ""; return;
   }
+  bar.innerHTML = '<span class="af-n">' + filtered().length + "종</span>" + activeChipsHTML();
+  bar.hidden = false;
+}
+
+/* 걸린 조건 칩 + 해제 — 결과 위 줄과 휴대폰 필터 창 맨 위가 같이 쓴다 */
+function activeCount() {
+  return activeFilters().length + (state.q ? 1 : 0) + (state.favOnly ? 1 : 0);
+}
+function activeChipsHTML() {
+  var fs = activeFilters();
   var chip = function (attr, pre, label) {
     return '<button class="af" ' + attr + ' title="이 조건 해제"><span class="afk">' + pre + "</span>" +
       esc(label) + '<span class="afx" aria-hidden="true">×</span></button>';
   };
-  var html = '<span class="af-n">' + filtered().length + "종</span>";
+  var html = "";
   if (state.q) html += chip('data-unq="1"', "검색", "‘" + state.q + "’");
   if (state.favOnly) html += chip('data-unfav="1"', "", "★ 즐겨찾기만");
   html += fs.map(function (f) {
     return chip('data-unf="' + f.k + '" data-unv="' + esc(f.v) + '"', FACET_KO[f.k], filterLabel(f.k, f.v));
   }).join("");
-  var many = fs.length + (state.q ? 1 : 0) + (state.favOnly ? 1 : 0) > 1;
-  html += '<button class="af-all" data-clear="ALL">' + (many ? "모두 해제" : "해제") + "</button>";
-  bar.innerHTML = html;
-  bar.hidden = false;
+  html += '<button class="af-all" data-clear="ALL">' + (activeCount() > 1 ? "모두 해제" : "해제") + "</button>";
+  return html;
 }
 
 function allCountries() {
@@ -8842,8 +8888,12 @@ function renderSidebar() {
   var any = anyFilter();
   var n = filtered().length;
   if (any) {
-    html = '<div class="facet" style="padding-top:0"><button class="reset" data-clear="ALL">필터 전체 해제</button></div>' + html;
+    html = '<div class="facet side-clear" style="padding-top:0"><button class="reset" data-clear="ALL">필터 전체 해제</button></div>' + html;
   }
+  /* 휴대폰 필터 창 맨 위 — 지금 고른 조건 (× 로 하나씩 풀기) */
+  var nc = activeCount();
+  html = '<div class="side-sel"><div class="ss-h"><b>고른 조건</b><span>' + (nc ? nc + "개 · 결과 " + n + "종" : "없음 · 전체 " + VARIETIES.length + "종") + "</span></div>" +
+    (nc ? '<div class="ss-chips">' + activeChipsHTML() + "</div>" : "") + "</div>" + html;
   /* 좁은 화면 — 색인을 펼친 채 고르고 나서 결과로 바로 간다 */
   html += '<div class="side-done"><button class="btn primary" data-sidedone="1">결과 ' + n + "종 보기</button></div>";
 
@@ -8858,7 +8908,8 @@ function renderSidebar() {
     "</div>";
 
   $("#sidebar").innerHTML = html;
-  $("#sideToggleCnt").textContent = any ? n + "종" : "전체";
+  $("#sideToggleCnt").textContent = nc ? "조건 " + nc + " · " + n + "종" : "전체";
+  $("#sideToggle").classList.toggle("on", nc > 0);
 }
 
 /* ── 카드 ─────────────────────────────────────── */
@@ -12338,7 +12389,6 @@ var APP_MENUS = {
     { view: "read",  ko: "읽는 법", sub: "도감 보는 법 · 자료의 믿을 만한 정도" },
     { sep: true },
     { act: "fav",   ko: "즐겨찾기만 보기" },
-    { act: "theme", ko: "화이트 / 블랙 전환" },
     { attr: "data-newvar", ko: "품종 직접 추가" },
     { attr: "data-bksave", ko: "지금 백업" },
     { attr: "data-import", ko: "백업 불러오기" }
@@ -12460,6 +12510,16 @@ $("#sheetBack").addEventListener("click", function () { closeSheet(); });
     sheetStep(dx < 0 ? 1 : -1);
   }, { passive: true });
 })();
+
+/* 확대 · 축소 막기 (사용자 요청 2026-10-03) — 앱처럼 화면이 고정되게
+   아이폰 사파리는 viewport 의 user-scalable=no 를 무시해서, 손가락 모으기(gesture)를 직접 막는다.
+   두 번 톡 확대는 CSS touch-action:manipulation 이 막는다 */
+["gesturestart", "gesturechange"].forEach(function (ev) {
+  document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+});
+document.addEventListener("touchmove", function (e) {
+  if (e.touches && e.touches.length > 1) e.preventDefault();   // 두 손가락 = 확대 시도
+}, { passive: false });
 
 appShellSync();
 
