@@ -2078,6 +2078,16 @@ body[data-view="eth"] .shell > div:first-child,body[data-view="eth"] .rail{displ
   .em-swipe{display:block !important}
   .em-ramp{max-width:none}
 }
+
+/* PC 기록 받기 (26b-sync.js) */
+.sync-p{padding:4px 14px 10px}
+.sync-d{font-size:13.5px;line-height:1.7;color:var(--ink-3);margin:6px 0 14px}
+.sync-l{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+.sync-p .inp{width:100%;font-family:var(--f-body);letter-spacing:.04em}
+.sync-b{display:flex;gap:8px;margin:14px 0 4px}
+.sync-b .btn{flex:1;justify-content:center;min-height:46px}
+.sync-st{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
+.sync-st span{color:var(--ink-3)}
 </style>
 
 </head>
@@ -12356,6 +12366,145 @@ function bkRemind() {
 }
 
 
+/* ===== 26b-sync.js ===== */
+/* ============================================================
+   PC 기록 받기 — 휴대폰 웹 앱 전용 (window.COFFEE_WEBAPP)
+   PC 저장 담당(tools/sync-push.js)이 비밀번호로 잠가 올린 기록을 받아 풀고, 이 휴대폰 기록과 맞춘다.
+
+   맞추는 규칙 (PC → 휴대폰, 받기만)
+     · PC에 있는 기록은 PC 것이 이긴다 (같은 id면 덮어쓴다)
+     · 이 휴대폰에서만 쓴 기록은 그대로 둔다
+     · 예전에 PC에서 받았는데 지금 PC에 없는 기록은 PC에서 지운 것 — 여기서도 지운다
+     · 즐겨찾기는 합친다
+   비밀번호는 이 휴대폰 브라우저에만 저장한다. 잠긴 파일은 누구나 받을 수 있지만 비밀번호 없이는 열 수 없다.
+   ============================================================ */
+
+var SYNC_URL = "https://raw.githubusercontent.com/amiioo1025-blip/coffee-atlas-sync/main/records.json";
+var SYNC_PW = LSK + "-syncpw";        // 비밀번호
+var SYNC_IDS = LSK + "-syncids";      // 지난번에 PC에서 받은 기록 id — 지운 것을 알아보려고
+var SYNC_META = LSK + "-syncmeta";    // { at: 받은 때, pcAt: PC에서 올린 때, n }
+var SYNC_GAP_MS = 60 * 1000;          // 화면에 돌아올 때마다 받되, 1분 안에는 다시 받지 않는다
+var syncBusy = false, syncLast = 0;
+
+function syncOn() { return !!window.COFFEE_WEBAPP && !!(window.crypto && crypto.subtle); }
+function syncPw() { try { return localStorage.getItem(SYNC_PW) || ""; } catch (e) { return ""; } }
+function syncMeta() { return lsGet(SYNC_META) || null; }
+
+function b64bytes(s) {
+  var bin = atob(s), u = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+
+/* 잠긴 파일 → 백업 JSON (비밀번호가 틀리면 실패) */
+function syncOpen(box, pw) {
+  var enc = new TextEncoder();
+  return crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveKey"]).then(function (base) {
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64bytes(box.salt), iterations: box.iter, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  }).then(function (key) {
+    return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64bytes(box.iv) }, key, b64bytes(box.ct));
+  }).then(function (buf) { return JSON.parse(new TextDecoder().decode(buf)); });
+}
+
+function syncMerge(data) {
+  var pc = (Array.isArray(data.tastings) ? data.tastings : []).filter(isCupLog);
+  var pcIds = {}; pc.forEach(function (l) { pcIds[l.id] = 1; });
+  var prev = {}; ((lsGet(SYNC_IDS) || {}).ids || []).forEach(function (id) { prev[id] = 1; });
+  var before = JSON.stringify(LOGS);
+  var mine = LOGS.filter(function (l) { return !pcIds[l.id] && !prev[l.id]; });     // 이 휴대폰에서만 쓴 것
+  LOGS = pc.concat(mine).sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  lsSet(SYNC_IDS, { ids: Object.keys(pcIds) });
+  var favChanged = false;
+  Object.keys(data.favorites || {}).forEach(function (id) { if (!state.fav[id]) { state.fav[id] = true; favChanged = true; } });
+  var changed = before !== JSON.stringify(LOGS);
+  if (changed) saveLogs();
+  if (favChanged) saveStore();
+  if (changed || favChanged) renderAll();
+  return { changed: changed || favChanged, n: pc.length, mine: mine.length };
+}
+
+/* 받기 — quiet 이면 바뀐 게 있을 때만 알린다 */
+function syncPull(quiet) {
+  var pw = syncPw();
+  if (!syncOn() || !pw || syncBusy) return Promise.resolve(false);
+  syncBusy = true; syncLast = Date.now();
+  return fetch(SYNC_URL + "?t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error(r.status === 404 ? "아직 PC에서 올린 기록이 없습니다" : "받지 못했습니다 (" + r.status + ")");
+    return r.json();
+  }).then(function (box) {
+    return syncOpen(box, pw).catch(function () { throw new Error("비밀번호가 맞지 않습니다"); }).then(function (data) {
+      var res = syncMerge(data);
+      lsSet(SYNC_META, { at: new Date().toISOString(), pcAt: box.at, n: res.n });
+      if (res.changed || !quiet) toast("PC 기록 " + res.n + "개를 받았습니다" + (res.mine ? " · 이 휴대폰에서 쓴 " + res.mine + "개는 그대로" : ""));
+      syncPanelRefresh();
+      return true;
+    });
+  }).catch(function (e) {
+    if (!quiet || /비밀번호/.test(e.message)) toast(e.message || "받지 못했습니다");
+    syncPanelRefresh();
+    return false;
+  }).then(function (ok) { syncBusy = false; return ok; });
+}
+
+/* ── 설정 창 (더보기 › PC 기록 받기 — 아래에서 올라오는 창을 같이 쓴다) ── */
+function syncPanelHTML() {
+  var pw = syncPw(), m = syncMeta();
+  var h = '<div class="am-h"><b>PC 기록 받기</b><button class="am-x" data-appclose="1" aria-label="닫기">닫기</button></div><div class="sync-p">';
+  h += '<p class="sync-d">PC 도감에 쓴 시음 기록을 이 휴대폰에서 받아 봅니다. 앱을 열 때마다 새로 받고, 이 휴대폰에서만 쓴 기록은 그대로 남습니다.</p>';
+  if (pw) {
+    h += '<div class="sync-st"><span>마지막으로 받은 때</span><b>' + (m ? agoKo(m.at) + " · 기록 " + m.n + "개" : "아직 없음") + "</b></div>";
+    if (m && m.pcAt) h += '<div class="sync-st"><span>PC에서 올린 때</span><b>' + agoKo(m.pcAt) + "</b></div>";
+    h += '<div class="sync-b"><button class="btn primary" data-syncnow="1">지금 받기</button><button class="btn" data-syncoff="1">비밀번호 지우기</button></div>';
+  } else {
+    h += '<label class="sync-l" for="syncPwIn">비밀번호</label><input class="inp" id="syncPwIn" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx">' +
+      '<div class="sync-b"><button class="btn primary" data-syncsave="1">저장하고 받기</button></div>' +
+      '<p class="sync-d">비밀번호는 PC 도감 폴더의 「동기화_설정.json」에 있습니다. 이 휴대폰에만 저장됩니다.</p>';
+  }
+  return h + "</div>";
+}
+function openSyncPanel() {
+  var m = $("#appMenu");
+  m.innerHTML = syncPanelHTML();
+  m.hidden = false; m.setAttribute("data-panel", "sync");
+  $("#appScrim").hidden = false;
+  document.body.classList.add("app-modal");
+}
+function syncPanelRefresh() {
+  var m = $("#appMenu");
+  if (m && !m.hidden && m.getAttribute("data-panel") === "sync") m.innerHTML = syncPanelHTML();
+}
+
+document.addEventListener("click", function (e) {
+  var t = e.target.closest ? e.target : e.target.parentNode;
+  if (!t || !t.closest) return;
+  if (t.closest("[data-syncsave]")) {
+    var v = ($("#syncPwIn") || {}).value || "";
+    v = v.trim().toLowerCase();
+    if (v.length < 8) { toast("비밀번호를 붙여넣어 주세요"); return; }
+    try { localStorage.setItem(SYNC_PW, v); } catch (err) { toast("이 브라우저에 저장할 수 없습니다"); return; }
+    syncPull(false).then(function (ok) {
+      if (!ok) { try { localStorage.removeItem(SYNC_PW); } catch (err) { /* 무시 */ } syncPanelRefresh(); }
+    });
+    return;
+  }
+  if (t.closest("[data-syncnow]")) { syncPull(false); return; }
+  if (t.closest("[data-syncoff]")) {
+    try { localStorage.removeItem(SYNC_PW); localStorage.removeItem(SYNC_META); } catch (err) { /* 무시 */ }
+    toast("비밀번호를 지웠습니다. 받아 둔 기록은 그대로 남습니다.");
+    syncPanelRefresh();
+  }
+});
+
+/* 열 때 · 앱으로 돌아올 때마다 받는다 */
+if (syncOn()) {
+  setTimeout(function () { syncPull(true); }, 800);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && Date.now() - syncLast > SYNC_GAP_MS) syncPull(true);
+  });
+}
+
+
 /* ===== 27-map.js ===== */
 /* ============================================================
    세계지도 — 품종이 어디서 왔고 어디서 자라는지
@@ -13258,6 +13407,7 @@ var APP_MENUS = {
     { view: "read",  ko: "읽는 법", sub: "도감 보는 법 · 자료의 믿을 만한 정도" },
     { sep: true },
     { act: "fav",   ko: "즐겨찾기만 보기" },
+    { act: "sync",  ko: "PC 기록 받기", sub: "PC 도감에 쓴 시음 기록을 이 휴대폰으로", webapp: true },
     { attr: "data-newvar", ko: "품종 직접 추가" },
     { attr: "data-bksave", ko: "지금 백업" },
     { attr: "data-import", ko: "백업 불러오기" }
@@ -13269,6 +13419,7 @@ function appMenuHTML(key) {
   return '<div class="am-h"><b>' + esc(m.title) + '</b><button class="am-x" data-appclose="1" aria-label="닫기">닫기</button></div>' +
     '<div class="am-list">' + m.items.map(function (it) {
       if (it.sep) return '<div class="am-sep"></div>';
+    if (it.webapp && !window.COFFEE_WEBAPP) return "";        // 휴대폰 웹 앱에서만
       var on = it.view && state.view === it.view;
       var extra = "";
       if (it.view === "cmp") extra = " <i>" + state.cmp.length + "</i>";
@@ -13288,7 +13439,7 @@ function openAppMenu(key) {
 }
 function closeAppLayers() {
   var m = $("#appMenu");
-  if (m) m.hidden = true;
+  if (m) { m.hidden = true; m.removeAttribute("data-panel"); }
   var sb = $("#sidebar");
   if (sb && sb.classList.contains("open")) {
     sb.classList.remove("open");
@@ -13343,6 +13494,7 @@ document.addEventListener("click", function (e) {
   if ((el = t.closest("[data-appview]"))) { closeAppLayers(); setView(el.dataset.appview); return; }
   if ((el = t.closest("[data-appact]"))) {
     var a = el.dataset.appact;
+    if (a === "sync") { openSyncPanel(); return; }          // 26b-sync.js — 같은 창에 설정을 연다
     closeAppLayers();
     if (a === "fav") $("#favBtn").click();
     if (a === "theme") $("#themeBtn").click();
