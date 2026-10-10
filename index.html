@@ -13243,6 +13243,14 @@ function bkRemind() {
    ============================================================ */
 
 var SYNC_URL = "https://raw.githubusercontent.com/amiioo1025-blip/coffee-atlas-sync/main/records.json";
+/* 바로 받기 — raw 주소는 GitHub 이 최대 5분 예전 파일을 준다(2026-10-10 「지연이 불편」). API 는 지금 내용을 준다.
+   API 는 로그인 없이 한 시간 60번까지 — 막히면 raw 로 */
+var SYNC_API = "https://api.github.com/repos/amiioo1025-blip/coffee-atlas-sync/contents/records.json";
+function syncFetch() {
+  return fetch(SYNC_API + "?t=" + Date.now(), { cache: "no-store", headers: { Accept: "application/vnd.github.raw+json" } })
+    .then(function (r) { if (r.ok || r.status === 404) return r; throw new Error("api " + r.status); })
+    .catch(function () { return fetch(SYNC_URL + "?t=" + Date.now(), { cache: "no-store" }); });
+}
 var SYNC_PW = LSK + "-syncpw";        // 비밀번호
 var SYNC_IDS = LSK + "-syncids";      // 지난번에 PC에서 받은 기록 id — 지운 것을 알아보려고
 var SYNC_META = LSK + "-syncmeta";    // { at: 받은 때, pcAt: PC에서 올린 때, n }
@@ -13292,7 +13300,7 @@ function syncPull(quiet) {
   var pw = syncPw();
   if (!syncOn() || !pw || syncBusy) return Promise.resolve(false);
   syncBusy = true; syncLast = Date.now();
-  return fetch(SYNC_URL + "?t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+  return syncFetch().then(function (r) {
     if (!r.ok) throw new Error(r.status === 404 ? "아직 PC에서 올린 기록이 없습니다" : "받지 못했습니다 (" + r.status + ")");
     return r.json();
   }).then(function (box) {
