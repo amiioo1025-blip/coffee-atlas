@@ -2452,6 +2452,14 @@ body[data-view="shop"] .shell > div:first-child,body[data-view="shop"] .rail{dis
   .ea-map,.ea.pan .ea-map{position:relative;top:auto}
   .ea-grip{display:none !important}
 }
+
+/* 기록 카드 — 품종 칩에 계통 색 (2026-10-10 · 계통도와 같은 GROUPS 색) */
+.log .vlink{display:inline-flex !important;align-items:center;gap:7px;border:1px solid color-mix(in srgb,var(--gcol) 70%,transparent) !important;
+  background:color-mix(in srgb,var(--gcol) 18%,transparent) !important;color:var(--ink) !important;padding:4px 11px 4px 9px !important;border-radius:999px !important;font-weight:500}
+.log .vlink .gdot{width:10px;height:10px;border-radius:50%;background:var(--gcol);flex:none}
+.log .vlink .gname{font-size:.86em;font-weight:600;color:color-mix(in srgb,var(--gcol) 80%,var(--ink));padding-left:7px;border-left:1px solid color-mix(in srgb,var(--gcol) 50%,transparent)}
+:root[data-theme="dark"] .log .vlink .gname{color:color-mix(in srgb,var(--gcol) 70%,#fff)}
+.log .vlink:hover{border-color:var(--gcol) !important;background:color-mix(in srgb,var(--gcol) 18%,transparent) !important}
 </style>
 
 </head>
@@ -11277,7 +11285,9 @@ function logCardHTML(l) {
   var meta = [l.roaster, l.origin, l.process, l.roast, l.brew].filter(Boolean).map(esc).join(" · ");
   return '<article class="log" style="--gcol:' + (v ? GROUPS[v.grp].col : "var(--line)") + '">' +
     '<div class="log-head"><h4>' + esc(l.name) + "</h4>" +
-      (v ? '<button class="vlink" data-go="' + v.id + '">' + esc(v.ko) + "</button>" : "") +
+      /* 품종 — 계통도와 같은 색 점 + 계열 이름 (2026-10-10) */
+      (v ? '<button class="vlink" data-go="' + v.id + '" title="' + esc(GROUPS[v.grp].ko) + '"><i class="gdot" aria-hidden="true"></i>' + esc(v.ko) +
+        '<span class="gname">' + esc(GROUPS[v.grp].ko) + "</span></button>" : "") +
       '<span class="dt">' + esc(l.date || "") + "</span></div>" +
     (meta ? '<div class="roaster">' + meta + "</div>" : "") +
     '<div class="cup-score"><b>' + fmt2(l.total) + "</b><span>/ 100</span></div>" +
